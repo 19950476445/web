@@ -2,8 +2,6 @@
 """
 文件分析工具
 """
-import os
-
 import streamlit as st
 import pandas as pd
 import altair as alt  # 导入Altair库
@@ -20,7 +18,6 @@ if 'page' not in st.session_state:
 # 在会话状态中初始化数据变量
 if 'uploaded_data' not in st.session_state:
     st.session_state['uploaded_data'] = None
-
 
 def visualize_data(df):
     # 检查数据是否存在，如果存在处理和可视化
@@ -66,7 +63,6 @@ def visualize_data(df):
         st.altair_chart(combined_chart, use_container_width=True)
     else:
         st.sidebar.write('请上传一个Excel文件。')
-
 
 # 主页面内容
 def main_page():
@@ -119,98 +115,212 @@ def main_page():
     else:
         st.sidebar.write('请上传一个Excel文件。')
 
-
 # 加载归一化参数函数
 def load_scaler(scaler_filename):
-    if not os.path.isfile(scaler_filename):
-        raise FileNotFoundError(f"文件 {scaler_filename} 未找到，请确保文件路径正确。")
     with open(scaler_filename, 'rb') as f:
         scaler = pickle.load(f)
     return scaler
 
-
 # 数据分析函数
 def analyze_data(prediction_type):
     st.title(f"岩石{prediction_type}预测")
-    if "uploaded_data" in st.session_state and st.session_state['uploaded_data'] is not None:
-        df = st.session_state['uploaded_data']
+    if prediction_type == "单轴抗压强度":
+        if "uploaded_data" in st.session_state and st.session_state['uploaded_data'] is not None:
+            df = st.session_state['uploaded_data']
 
-        if prediction_type == "单轴抗压强度":
-            scaler_x = load_scaler('scaler_x.pkl1')
-            scaler_y = load_scaler('scaler_y.pkl1')
-            model_filename = 'rock_ucs_model.pkl1'
-            prediction_column = 'UCS_预测值（MPa）'
-        elif prediction_type == "粘聚力":
-            scaler_x = load_scaler('scaler_x.pkl3')
-            scaler_y = load_scaler('scaler_y.pkl3')
-            model_filename = 'rock_c_model.pkl1'
-            prediction_column = '粘聚力_预测值（MPa）'
-        elif prediction_type == "内摩擦角":
+            # 使用pickle加载模型
+            with open('scaler_x.pkl1', 'rb') as x1:
+                scaler_x = pickle.load(x1)
+            # 使用pickle加载模型
+            with open('scaler_y.pkl1', 'rb') as y1:
+                scaler_y = pickle.load(y1)
+
+            # 确保选取的特征与训练时一致
+            # 这里假设你需要的特征是前6列
+            feature_columns = df.columns[:6]
+            features = df[feature_columns]
+
+
+            # 检查并确保特征数量与scaler_x期望的一致
+            if features.shape[1] != scaler_x.n_features_in_:
+                st.error(f"数据列数与模型期望不匹配。期望 {scaler_x.n_features_in_} 列，但得到了 {features.shape[1]} 列。")
+                return
+
+            # 使用归一化参数对特征进行归一化处理
+            features_scaled = scaler_x.transform(features)
+
+            # 使用pickle加载模型
+            with open('rock_ucs_model.pkl1', 'rb') as model_file:
+                model = pickle.load(model_file)
+
+            # 对特征进行预测
+            predictions_scaled = model.predict(features_scaled)
+            # 确保 predictions_scaled 是一个 NumPy 数组
+            predictions_scaled = np.array(predictions_scaled)
+
+            # 使用切片，选择第22列的预测值（索引为21）
+            predictions_required = predictions_scaled[:, :, 21]
+
+            # 将预测结果进行反归一化处理
+            predictions = scaler_y.inverse_transform(predictions_required.reshape(-1, 1))
+
+            # 将反归一化后的预测结果添加到原始数据框中
+            df['UCS_预测值（MPa）'] = predictions
+
+            # 打印 UCS 预测值
+            st.write("UCS预测值:")
+            # 使用 st.columns 创建并列布局
+            col1, col2 = st.columns([4, 1])  # 调整列宽比例
+
+            with col1:
+                # 可视化预测结果
+                chart = alt.Chart(df).mark_line().encode(
+                    x='深度（m）',  # 假设你的X轴是某个特征
+                    y='UCS_预测值（MPa）',  # Y轴是预测结果
+                    tooltip=['深度（m）', 'UCS_预测值（MPa）']
+                ).properties(
+                    width='container',
+                    height=600  # 图表高度
+                ).interactive()
+                st.altair_chart(chart, use_container_width=True)
+
+            with col2:
+                # 打印表格
+                st.dataframe(df[['深度（m）', 'UCS_预测值（MPa）']], height=550)  # 假设 "深度（mm）" 是你的深度列名
+
+    elif prediction_type == "内摩擦角":
+        if "uploaded_data" in st.session_state and st.session_state['uploaded_data'] is not None:
+            df = st.session_state['uploaded_data']
+
+            # 加载归一化参数
             scaler_x = load_scaler('scaler_x.pkl2')
             scaler_y = load_scaler('scaler_y.pkl2')
-            model_filename = 'rock_f_model.pkl1'
-            prediction_column = '内摩擦角_预测值（°）'
-        else:
-            st.error("未知的预测类型")
-            return
 
-        # 确保选取的特征与训练时一致
-        # 这里假设你需要的特征是前6列
-        feature_columns = df.columns[:6]
-        features = df[feature_columns]
+            # 确保选取的特征与训练时一致
+            # 这里假设你需要的特征是前6列
+            feature_columns = df.columns[:6]
+            features = df[feature_columns]
 
-        # 检查并确保特征数量与scaler_x期望的一致
-        if features.shape[1] != scaler_x.n_features_in_:
-            st.error(f"数据列数与模型期望不匹配。期望 {scaler_x.n_features_in_} 列，但得到了 {features.shape[1]} 列。")
-            return
 
-        # 使用归一化参数对特征进行归一化处理
-        features_scaled = scaler_x.transform(features)
+            # 检查并确保特征数量与scaler_x期望的一致
+            if features.shape[1] != scaler_x.n_features_in_:
+                st.error(f"数据列数与模型期望不匹配。期望 {scaler_x.n_features_in_} 列，但得到了 {features.shape[1]} 列。")
+                return
 
-        # 使用pickle加载模型
-        with open(model_filename, 'rb') as model_file:
-            model = pickle.load(model_file)
+            # 使用归一化参数对特征进行归一化处理
+            features_scaled = scaler_x.transform(features)
 
-        # 对特征进行预测
-        predictions_scaled = model.predict(features_scaled)
-        predictions_scaled = np.array(predictions_scaled)
+            # 使用pickle加载模型
+            with open('rock_f_model.pkl1', 'rb') as model_file:
+                model = pickle.load(model_file)
 
-        # 使用切片，选择第22列的预测值（索引为21）
-        predictions_required = predictions_scaled[:, :, 21]
+            # 对特征进行预测
+            predictions_scaled = model.predict(features_scaled)
 
-        # 将预测结果进行反归一化处理
-        predictions = scaler_y.inverse_transform(predictions_required.reshape(-1, 1))
+            # 确保 predictions_scaled 是一个 NumPy 数组
+            predictions_scaled = np.array(predictions_scaled)
 
-        # 将反归一化后的预测结果添加到原始数据框中
-        df[prediction_column] = predictions
+            # 使用切片，选择第22列的预测值（索引为21）
+            predictions_required = predictions_scaled[:, :, 21]
 
-        # 打印预测值
-        st.write(f"{prediction_type}预测值:")
-        # 使用 st.columns 创建并列布局
-        col1, col2 = st.columns([4, 1])  # 调整列宽比例
+            # 将预测结果进行反归一化处理
+            predictions = scaler_y.inverse_transform(predictions_required.reshape(-1, 1))
 
-        with col1:
-            # 可视化预测结果
-            chart = alt.Chart(df).mark_line().encode(
-                x='深度（m）',  # 假设你的X轴是某个特征
-                y=prediction_column,  # Y轴是预测结果
-                tooltip=['深度（m）', prediction_column]
-            ).properties(
-                width='container',
-                height=600  # 图表高度
-            ).interactive()
-            st.altair_chart(chart, use_container_width=True)
+            # 将反归一化后的预测结果添加到原始数据框中
+            df['内摩擦角_预测值（°）'] = predictions
 
-        with col2:
-            # 打印表格
-            st.dataframe(df[['深度（m）', prediction_column]], height=550)  # 假设 "深度（m）" 是你的深度列名
+            # 打印 内摩擦角 预测值
+            st.write("内摩擦角预测值:")
+            # 使用 st.columns 创建并列布局
+            col1, col2 = st.columns([4, 1])  # 调整列宽比例
 
+            with col1:
+                # 可视化预测结果
+                chart = alt.Chart(df).mark_line().encode(
+                    x='深度（m）',  # 假设你的X轴是某个特征
+                    y='内摩擦角_预测值（°）',  # Y轴是预测结果
+                    tooltip=['深度（m）', '内摩擦角_预测值（°）']
+                ).properties(
+                    width='container',
+                    height=600  # 图表高度
+                ).interactive()
+                st.altair_chart(chart, use_container_width=True)
+
+            with col2:
+                # 打印表格
+                st.dataframe(df[['深度（m）', '内摩擦角_预测值（°）']], height=550)  # 假设 "深度（m）" 是你的深度列名
+
+    elif prediction_type == "粘聚力":
+        if "uploaded_data" in st.session_state and st.session_state['uploaded_data'] is not None:
+            df = st.session_state['uploaded_data']
+
+            # 加载归一化参数
+            scaler_x = load_scaler('scaler_x.pkl3')
+            scaler_y = load_scaler('scaler_y.pkl3')
+
+            # 确保选取的特征与训练时一致
+            # 这里假设你需要的特征是前6列
+            feature_columns = df.columns[:6]
+            features = df[feature_columns]
+
+
+            # 检查并确保特征数量与scaler_x期望的一致
+            if features.shape[1] != scaler_x.n_features_in_:
+                st.error(f"数据列数与模型期望不匹配。期望 {scaler_x.n_features_in_} 列，但得到了 {features.shape[1]} 列。")
+                return
+
+            # 使用归一化参数对特征进行归一化处理
+            features_scaled = scaler_x.transform(features)
+
+            # 使用pickle加载模型
+            with open('rock_c_model.pkl1', 'rb') as model_file:
+                model = pickle.load(model_file)
+
+            # 对特征进行预测
+            predictions_scaled = model.predict(features_scaled)
+
+            # 确保 predictions_scaled 是一个 NumPy 数组
+            predictions_scaled = np.array(predictions_scaled)
+
+            # 使用切片，选择第22列的预测值（索引为21）
+            predictions_required = predictions_scaled[:, :, 21]
+
+            # 将预测结果进行反归一化处理
+            predictions = scaler_y.inverse_transform(predictions_required.reshape(-1, 1))
+
+            # 将反归一化后的预测结果添加到原始数据框中
+            df['粘聚力_预测值（MPa）'] = predictions
+
+            # 打印 内摩擦角 预测值
+            st.write("粘聚力预测值:")
+            # 使用 st.columns 创建并列布局
+            col1, col2 = st.columns([4, 1])  # 调整列宽比例
+
+            with col1:
+                # 可视化预测结果
+                chart = alt.Chart(df).mark_line().encode(
+                    x='深度（m）',  # 假设你的X轴是某个特征
+                    y='粘聚力_预测值（MPa）',  # Y轴是预测结果
+                    tooltip=['深度（m）', '粘聚力_预测值（MPa）']
+                ).properties(
+                    width='container',
+                    height=600  # 图表高度
+                ).interactive()
+                st.altair_chart(chart, use_container_width=True)
+
+            with col2:
+                # 打印表格
+                st.dataframe(df[['深度（m）', '粘聚力_预测值（MPa）']], height=550)  # 假设 "深度（m）" 是你的深度列名
+
+
+    # 利用会话状态中保存的数据进行分析
     if st.session_state['uploaded_data'] is not None:
+        df = st.session_state['uploaded_data']
+        st.write("分析结果和可视化内容...")
         if st.button('返回主页面'):
             st.session_state['page'] = 'home'
     else:
         st.error("请先上传数据文件。")
-
 
 # 根据当前页面状态决定渲染哪个页面的内容
 if st.session_state['page'] == 'home':
